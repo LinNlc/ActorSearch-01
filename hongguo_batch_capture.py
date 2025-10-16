@@ -42,6 +42,81 @@ pyautogui.PAUSE = 0.12
 
 CONFIG_FILE = Path("hongguo_config.json")
 
+STEP_KEYS_ORDER = [
+    "step1",
+    "step3",
+    "step5",
+    "step6",
+    "ROI_AFTER_6",
+    "step8",
+    "step9",
+    "step10",
+]
+
+PROMPTS = {
+    "step1": "① 请点击搜索输入框（MuMu 窗口内）",
+    "step3": "③ 请点击搜索按钮",
+    "step5": "⑤ 请点击需要的位置（第5步）",
+    "step6": "⑥ 请点击需要的位置（第6步）",
+    "ROI_AFTER_6": "⑦ 请拖拽选择截图区域",
+    "step8": "⑧ 请点击需要的位置（第8步）",
+    "step9": "⑨ 请点击需要的位置（第9步）",
+    "step10": "⑩ 请点击需要的位置（第10步）",
+}
+
+# ===== 通用工具 =====
+def safe_filename(name: str) -> str:
+    if not name:
+        return "screenshot"
+    cleaned = re.sub(r"[\\/:*?\"<>|]", "_", str(name).strip())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip("._ ")
+    return cleaned or "screenshot"
+
+
+def countdown(seconds: int):
+    for i in range(int(seconds), 0, -1):
+        print(f"  {i}...")
+        time.sleep(1)
+
+
+def choose_excel():
+    if HAS_TK:
+        root = None
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askopenfilename(
+                title="请选择演员名单 Excel 文件",
+                filetypes=[("Excel", "*.xlsx"), ("所有文件", "*.*")],
+            )
+        finally:
+            if root is not None:
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+        return path
+    else:
+        return input("请输入 Excel 文件路径：").strip()
+
+
+def read_actor_names(path: str):
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        for cell in ws["A"]:
+            value = cell.value
+            if value is None:
+                break
+            name = str(value).strip()
+            if name:
+                yield name
+    finally:
+        wb.close()
+
+
 # ===== ADB 中文输入 =====
 ADB_PATH = (
     os.environ.get("ADB_PATH")
@@ -91,22 +166,29 @@ def adb_key(code):
 
 
 
+
+
+
+
+
+
 def _encode_text_for_adb(text: str) -> str:
     """将字符串转为 adb shell input text 可识别的形式，兼容中文。"""
 
     def _escape_char(ch: str) -> str:
         if ch == " ":
             return "%s"
-        if ch == "	":
-            return "%s"
+        if ch == "\t":
+            return "%09"
         if ch == "\n":
-            return "%s"
+            return "%0A"
 
-        if ch in {'|', '&', '<', '>', '(', ')', "'", '"', '\\', '*', ';'}:
+        if ch in {"|", "&", "<", ">", "(", ")", "'", '"', "\\", "*", ";"}:
             return "\\" + ch
         if ord(ch) > 0x7F:
             return "\\u{:04x}".format(ord(ch))
         return ch
+
     return "".join(_escape_char(c) for c in text)
 
 # ===== 首次标定：取点/取框 =====
