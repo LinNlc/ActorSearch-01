@@ -43,8 +43,11 @@ pyautogui.PAUSE = 0.12
 CONFIG_FILE = Path("hongguo_config.json")
 
 # ===== ADB 中文输入 =====
-ADB_PATH = os.environ.get("ADB_PATH") or shutil.which("adb") or "D:\\Program\\MuMuPlayer\
-x_main\\adb.exe"
+ADB_PATH = (
+    os.environ.get("ADB_PATH")
+    or shutil.which("adb")
+    or r"D:\\Program\\MuMuPlayer\\x_main\\adb.exe"
+)
 ADB_HOST = os.environ.get("ADB_HOST", "127.0.0.1:16384")
 
 def adb(args, check=False):
@@ -57,29 +60,26 @@ def adb_connect():
     # 检查连接状态
     d = adb(["devices"])
     if d and d.stdout:
-        # 检查输出中是否包含设备连接信息
-        lines = d.stdout.strip().split('
-')
+        lines = d.stdout.strip().splitlines()
         for line in lines:
             if ADB_HOST in line and "device" in line:
                 print("  [ADB] 已连接")
                 return True
-    
+
     # 尝试连接
     print("  [ADB] 尝试连接...")
     adb(["connect", ADB_HOST])
     time.sleep(1)  # 等待连接
-    
+
     # 再次检查连接状态
     d2 = adb(["devices"])
     if d2 and d2.stdout:
-        lines = d2.stdout.strip().split('
-')
+        lines = d2.stdout.strip().splitlines()
         for line in lines:
             if ADB_HOST in line and "device" in line:
                 print("  [ADB] 连接成功")
                 return True
-    
+
     print("  [ADB] 连接失败")
     return False
 
@@ -89,72 +89,25 @@ def adb_tap(x, y):
 def adb_key(code):
     adb(["shell", "input", "keyevent", str(code)])
 
-def adb_text(text):
-    """使用 ADB 输入文本（支持中文）"""
-    if not adb_connect():
-        print("  [警告] ADB 未连接，尝试使用剪贴板方式")
-        return False
-    
-    # 清除输入框内容
-    adb_tap(x, y)  # 点击输入框确保焦点
-    time.sleep(0.1)
-    adb_key(67)  # KEYCODE_DEL 删除所有内容
-    time.sleep(0.1)
-    
-    # 使用 ADB 输入文本
-    # 对于中文，使用 input text 命令（需要设备支持中文输入法）
-    try:
-        # 尝试直接输入
-        r = adb(["shell", "input", "text", text])
-        if r and r.returncode == 0:
-            return True
-    except:
-        pass
-    
-    print("  [警告] ADB 输入失败，请确保 MuMu 已安装中文输入法")
-    return False
 
-# 首次标定顺序：①③⑤⑥ → 取框 → ⑧⑨⑩
-STEP_KEYS_ORDER = ["step1","step3","step5","step6","ROI_AFTER_6","step8","step9","step10"]
-PROMPTS = {
-    "step1":  "① 把鼠标移到【搜索输入框】，左键单击一次（记录坐标）",
-    "step3":  "③ 把鼠标移到【搜索按钮/确认】，左键单击一次（记录坐标）",
-    "step5":  "⑤ 把鼠标移到第⑤步目标，左键单击一次（记录坐标）",
-    "step6":  "⑥ 把鼠标移到第⑥步目标，左键单击一次（记录坐标）",
-    "ROI_AFTER_6": "现在弹出【半透明取框】用于第7步截图区域：左键拖拽，松开结束；右键/ESC 取消",
-    "step8":  "⑧ 把鼠标移到第⑧步目标，左键单击一次（记录坐标）",
-    "step9":  "⑨ 把鼠标移到第⑨步目标，左键单击一次（记录坐标）",
-    "step10": "⑩ 把鼠标移到第⑩步目标，左键单击一次（记录坐标）",
-}
 
-# ===== 小工具 =====
-def safe_filename(s: str) -> str:
-    return re.sub(r'[\\/:*?"<>|\r\n\t]+','',(s or '').strip())
+def _encode_text_for_adb(text: str) -> str:
+    """将字符串转为 adb shell input text 可识别的形式，兼容中文。"""
 
-def read_actor_names(xlsx_path: str):
-    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
-    ws = wb[wb.sheetnames[0]]
-    r=1
-    while True:
-        v = ws.cell(row=r, column=1).value
-        if v is None or str(v).strip()=="":
-            break
-        yield str(v).strip()
-        r+=1
+    def _escape_char(ch: str) -> str:
+        if ch == " ":
+            return "%s"
+        if ch == "	":
+            return "%s"
+        if ch == "\n":
+            return "%s"
 
-def choose_excel():
-    if not HAS_TK:
-        print("[错误] 需要 tkinter 才能选择文件。请安装 tk 或把 Excel 路径写入脚本。")
-        sys.exit(1)
-    root=tk.Tk(); root.withdraw(); root.update()
-    p=filedialog.askopenfilename(title="选择演员名称 Excel（A列A1起）",
-        filetypes=[("Excel 文件","*.xlsx;*.xlsm;*.xltx;*.xltm")])
-    root.destroy(); return p
-
-def countdown(sec=3, tip="将开始执行，请切到 MuMu 窗口…"):
-    for i in range(sec,0,-1):
-        print(f"{tip} {i}s", end="\r", flush=True); time.sleep(1)
-    print("开始执行……".ljust(40))
+        if ch in {'|', '&', '<', '>', '(', ')', "'", '"', '\\', '*', ';'}:
+            return "\\" + ch
+        if ord(ch) > 0x7F:
+            return "\\u{:04x}".format(ord(ch))
+        return ch
+    return "".join(_escape_char(c) for c in text)
 
 # ===== 首次标定：取点/取框 =====
 def capture_one_click(prompt, timeout=60):
@@ -258,31 +211,56 @@ def click_xy(x, y, clicks=1, wait=0.18):
     time.sleep(wait)
 
 def input_text_via_adb(text: str, x: int, y: int):
-    """使用 ADB 输入文本（支持中文）"""
-    # 强制使用ADB连接和输入
+    """使用 ADB 在 MuMu 中稳定输入中文。"""
+
+    if not text:
+        print("  [提示] 输入内容为空，已跳过 ADB 输入。")
+        return True
+
     if not adb_connect():
         print("  [错误] ADB 连接失败，无法继续")
         return False
-    
-    # 清除输入框内容
-    adb_tap(x, y)  # 点击输入框确保焦点
+
+    # 清除输入框内容后再输入
+    adb_tap(x, y)
     time.sleep(0.1)
-    adb_key(67)  # KEYCODE_DEL 删除所有内容
+    adb_key(67)
     time.sleep(0.1)
-    
-    # 使用 ADB 输入文本
+
+    encoded = _encode_text_for_adb(text)
     try:
-        # 对于中文，需要设备安装中文输入法
-        r = adb(["shell", "input", "text", text])
+        r = adb(["shell", "input", "text", encoded])
         if r and r.returncode == 0:
             print("  [ADB] 文本输入成功")
             return True
         else:
-            print("  [错误] ADB 输入失败")
-            return False
+            msg = (r.stderr or r.stdout or "").strip() if r else ""
+            print(f"  [警告] input text 失败：{msg}")
     except Exception as e:
-        print(f"  [错误] ADB 输入异常: {e}")
-        return False
+        print(f"  [警告] input text 异常：{e}")
+
+    # 尝试使用 ADB Keyboard 广播作为兜底
+    try:
+        r2 = adb([
+            "shell",
+            "am",
+            "broadcast",
+            "-a",
+            "ADB_INPUT_TEXT",
+            "--es",
+            "msg",
+            text,
+        ])
+        if r2 and r2.returncode == 0 and "result=0" in (r2.stdout or ""):
+            print("  [ADB] 广播输入成功")
+            return True
+        else:
+            msg = (r2.stderr or r2.stdout or "").strip() if r2 else ""
+            print(f"  [错误] 广播输入失败：{msg}")
+    except Exception as e:
+        print(f"  [错误] 广播输入异常：{e}")
+
+    return False
 
 def take_region_screenshot(region: dict, save_name: str):
     L,T,R,B = region["left"],region["top"],region["right"],region["bottom"]
